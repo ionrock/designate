@@ -253,11 +253,13 @@ class DNSService(object):
         self._dns_sock_tcp = dnsutils.bind_tcp(
             self._service_config.host,
             self._service_config.port,
-            self._service_config.tcp_backlog)
+            self._service_config.tcp_backlog
+        )
 
         self._dns_sock_udp = dnsutils.bind_udp(
             self._service_config.host,
-            self._service_config.port)
+            self._service_config.port
+        )
 
         self.tg.add_thread(self._dns_handle_tcp)
         self.tg.add_thread(self._dns_handle_udp)
