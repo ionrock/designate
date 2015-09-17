@@ -352,10 +352,10 @@ def bind_udp(host, port):
     sock_udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     # NOTE: Linux supports socket.SO_REUSEPORT only in 3.9 and later releases.
-    try:
-        sock_udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-    except Exception:
-        pass
+    # try:
+    #     sock_udp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    # except Exception:
+    #     pass
 
     sock_udp.setblocking(True)
     sock_udp.bind((host, port))
