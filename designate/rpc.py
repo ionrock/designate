@@ -205,7 +205,7 @@ def get_server(target, endpoints, serializer=None):
     serializer = RequestContextSerializer(serializer)
 
     dispatcher = RPCDispatcher(target, endpoints, serializer)
-    return msg_server.MessageHandlingServer(TRANSPORT, dispatcher, 'eventlet')
+    return msg_server.MessageHandlingServer(TRANSPORT, dispatcher, 'threading')
 
 
 def get_listener(targets, endpoints, serializer=None):
@@ -215,7 +215,7 @@ def get_listener(targets, endpoints, serializer=None):
     return messaging.get_notification_listener(TRANSPORT,
                                                targets,
                                                endpoints,
-                                               executor='eventlet',
+                                               executor='threading',
                                                serializer=serializer)
 
 
