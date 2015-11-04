@@ -23,6 +23,8 @@ from designate import service
 from designate import utils
 from designate.api import service as api_service
 
+from waitress import serve
+
 
 CONF = cfg.CONF
 CONF.import_opt('workers', 'designate.api', group='service:api')
@@ -37,5 +39,8 @@ def main():
     hookpoints.log_hook_setup()
 
     server = api_service.Service(threads=CONF['service:api'].threads)
-    service.serve(server, workers=CONF['service:api'].workers)
-    service.wait()
+    serve(
+        server._wsgi_application,
+        host=server._service_config.api_host,
+        port=server._service_config.api_port
+    )
