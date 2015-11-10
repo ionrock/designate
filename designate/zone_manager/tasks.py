@@ -19,6 +19,7 @@ from designate import context
 from designate import plugin
 from designate import rpc
 from designate.central import rpcapi
+from designate.zone_manager import alias
 from designate.i18n import _LI
 from designate.pool_manager.rpcapi import PoolManagerAPI
 
@@ -297,3 +298,65 @@ class PeriodicGenerateDelayedNotifyTask(PeriodicTask):
             pm_api.update_zone(ctxt, z)
             z.delayed_notify = False
             self.central_api.update_zone(ctxt, z)
+
+
+class PeriodicFlattenAliasTask(PeriodicTask):
+    __plugin_name__ = 'flatten_alias'
+    __interval__ = 3600
+
+    def __init__(self, config=None):
+        # TODO(elarson): Hijacking __init__ to make it more
+        #                testable. Fix PeriodicTask to accept the
+        #                config rather than always assuming the
+        #                global.
+        self.cfg = config or cfg.CONF
+        self.my_partitions = None
+        self.options = self.cfg[self.get_canonical_name()]
+
+    @classmethod
+    def get_cfg_opts(cls):
+        group = cfg.OptGroup(cls.get_canonical_name())
+        options = cls.get_base_opts()
+        return [(group, options)]
+
+    @property
+    def context(self):
+        if not hasattr(self, '_context'):
+            self._context = context.DesignateContext.get_admin_context()
+            self._context.all_tenants = True
+        return self._context
+
+    @property
+    def central_api(self):
+        if not hasattr(self, '_central_api'):
+            self._central_api = rpcapi.CentralAPI.get_instance()
+        return self._central_api
+
+    def alias_recordsets(self):
+        # Find our alias records
+        zones = [z.id for z in self._iter_zones(self.context)]
+        criterion = {'zone_id': zones, 'type': 'ALIAS'}
+
+        recordsets_iter = self._iter(
+            self.central_api.find_recordsets,
+            self.context, criterion=criterion
+        )
+        for recordset in recordsets_iter:
+            yield recordset
+
+    def __call__(self):
+        LOG.info(_LI('Starting the flattening task'))
+        pstart, pend = self._my_range()
+        LOG.info(
+            _LI("Updating ALIAS records for zones %(start)s to %(end)s"),
+            {"start": pstart, "end": pend}
+        )
+
+        for recordset in self.alias_recordsets():
+            LOG.info(_LI('Flattening: %s'), recordset)
+            alias.flatten(
+                self.context,
+                self.central_api,
+                recordset.zone_id,
+                recordset
+            )

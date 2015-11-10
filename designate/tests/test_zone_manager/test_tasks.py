@@ -15,8 +15,10 @@
 # under the License.
 
 import datetime
+import unittest
+import collections
 
-from mock import MagicMock
+import mock
 from oslo_log import log as logging
 from oslo_utils import timeutils
 
@@ -112,7 +114,7 @@ class DeletedzonePurgeTest(TaskTest):
 
 fx_pool_manager = MockPatch(
     'designate.zone_manager.tasks.PoolManagerAPI.get_instance',
-    MagicMock(spec_set=[
+    mock.MagicMock(spec_set=[
         'update_zone',
     ])
 )
@@ -159,7 +161,73 @@ class PeriodicGenerateDelayedNotifyTaskTest(TaskTest):
             interval=1,
             batch_size=5,
             group="zone_manager_task:delayed_notify"
+
+
+class ALIASRecordFlattenTaskTest(unittest.TestCase):
+
+    def setUp(self):
+        super(ALIASRecordFlattenTaskTest, self).setUp()
+        config = {
+            'zone_manager_task:flatten_alias': {}
+        }
+        self.task = tasks.PeriodicFlattenAliasTask(config=config)
+        self.task._central_api = mock.Mock()
+        self.task._context = {}
+
+    def mock_iter_zones(self, *zones):
+        """Return a method for mocking _iter_zones"""
+        _iter_zones = mock.Mock()
+        _iter_zones.return_value = [mock.Mock(id=zone) for zone in zones]
+        return _iter_zones
+
+    def mock_iter(self, *records):
+        # mock.Mock the _iter to avoid calling the DB / central
+        recordset = mock.MagicMock()
+        recordset.__iter__.return_value = iter([r for r in records])
+        recordset.records = list(records)
+
+        _iter = mock.Mock()
+        _iter.return_value = [recordset]
+        return _iter
+
+    def test_alias_recordsets(self):
+        self.task._iter_zones = self.mock_iter_zones(1234)
+        alias_record = mock.Mock()
+        self.task._iter = self.mock_iter(alias_record)
+
+        recordsets = self.task.alias_recordsets()
+        assert isinstance(recordsets, collections.Iterable)
+
+        recordset = list(recordsets).pop()
+        assert list(recordset) == [alias_record]
+
+        # Make sure we queried our _iter correctly
+        self.task._iter.assert_called_with(
+            self.task.central_api.find_recordsets,
+            self.task.context,
+            criterion={
+                'domain_id': [1234],  # from our zones
+                'type': 'ALIAS',
+            }
         )
+
+    @mock.patch.object(tasks, 'alias')
+    def test___call__(self, alias):
+        recordset = mock.Mock(zone_id=1234)
+        self.task.alias_recordsets = mock.Mock()
+        self.task.alias_recordsets.return_value = [recordset]
+
+        # Used in the logging.
+        self.task.my_partitions = ['a.com.', 'z.com.']
+
+        self.task()
+
+        alias.flatten.assert_called_with(
+            self.task.context, self.task.central_api,
+            recordset.domain_id, recordset
+======= end
+        )
+<<<<<<< variant A
         self._create_zones()
         zones = self._fetch_zones(tables.zones.select().where(
             tables.zones.c.delayed_notify == True))  # nopep8
@@ -187,3 +255,5 @@ class PeriodicGenerateDelayedNotifyTaskTest(TaskTest):
         zones = self._fetch_zones(tables.zones.select().where(
             tables.zones.c.delayed_notify == True))  # nopep8
         self.assertEqual(0, len(zones))
+>>>>>>> variant B
+======= end
