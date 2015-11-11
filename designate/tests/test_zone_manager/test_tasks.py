@@ -206,7 +206,7 @@ class ALIASRecordFlattenTaskTest(unittest.TestCase):
             self.task.central_api.find_recordsets,
             self.task.context,
             criterion={
-                'domain_id': [1234],  # from our zones
+                'zone_id': [1234],  # from our zones
                 'type': 'ALIAS',
             }
         )

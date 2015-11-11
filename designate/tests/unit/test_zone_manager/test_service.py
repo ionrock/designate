@@ -13,7 +13,6 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 # License for the specific language governing permissions and limitations
 # under the License.
-
 """Unit-test Zone Manager service
 """
 
@@ -24,7 +23,7 @@ from designate.tests.unit import RoObject
 import designate.zone_manager.service as zms
 
 
-@mock.patch.object(zms.rpcapi.CentralAPI, 'get_instance')
+@mock.patch.object(zms.central_rpcapi.CentralAPI, 'get_instance')
 class ZoneManagerTest(test.BaseTestCase):
 
     def setUp(self):
@@ -78,4 +77,49 @@ class ZoneManagerTest(test.BaseTestCase):
                 'location': 'designate://v2/zones/tasks/exports/4/export'
             },
             out
+        )
+
+
+class TestZoneManagerAPI(test.BaseTestCase):
+
+    def setUp(self):
+        super(TestZoneManagerAPI, self).setUp()
+        self.ctx = {}
+        self.domain_id = 1234
+        self.recordset = mock.Mock()
+
+        self.storage = mock.Mock()
+        self.quota = mock.Mock()
+        self.service = zms.Service(
+            storage_obj=self.storage,
+            quota_manager=self.quota
+        )
+
+    def test_constructor(self):
+        assert self.service
+
+    @mock.patch.object(zms, 'alias')
+    def test_flatten_alias_record(self, alias):
+        self.service.flatten_alias_record(
+            self.ctx, self.domain_id, self.recordset
+        )
+
+        alias.flatten.assert_called_with(
+            self.ctx,
+            self.service.central_api,
+            self.domain_id,
+            self.recordset
+        )
+
+    @mock.patch.object(zms, 'alias')
+    def test_delete_alias_record(self, alias):
+        self.service.delete_alias_record(
+            self.ctx, self.domain_id, self.recordset
+        )
+
+        alias.delete.assert_called_with(
+            self.ctx,
+            self.service.central_api,
+            self.domain_id,
+            self.recordset
         )

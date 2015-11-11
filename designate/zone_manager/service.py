@@ -24,8 +24,10 @@ from designate import quota
 from designate import service
 from designate import storage
 from designate import utils
-from designate.central import rpcapi
+from designate.central import rpcapi as central_rpcapi
+from designate.pool_manager import rpcapi as pool_manager_rpcapi
 from designate.zone_manager import tasks
+from designate.zone_manager import alias
 
 
 LOG = logging.getLogger(__name__)
@@ -36,7 +38,7 @@ NS = 'designate.periodic_tasks'
 
 class Service(service.RPCService, coordination.CoordinationMixin,
               service.Service):
-    RPC_API_VERSION = '1.0'
+    RPC_API_VERSION = '1.1'
 
     target = messaging.Target(version=RPC_API_VERSION)
 
@@ -60,7 +62,11 @@ class Service(service.RPCService, coordination.CoordinationMixin,
 
     @property
     def central_api(self):
-        return rpcapi.CentralAPI.get_instance()
+        return central_rpcapi.CentralAPI.get_instance()
+
+    @property
+    def pool_manager_api(self):
+        return pool_manager_rpcapi.PoolManagerAPI.get_instance()
 
     def start(self):
         super(Service, self).start()
@@ -73,6 +79,11 @@ class Service(service.RPCService, coordination.CoordinationMixin,
         self._partitioner.watch_partition_change(self._rebalance)
 
         enabled = CONF['service:zone_manager'].enabled_tasks
+
+        LOG.info(_LI('Periodic tasks: %s'), enabled)
+        LOG.info(_LI('All Periodic Tasks: %s'),
+                 tasks.PeriodicTask.get_extensions(None))
+
         for task in tasks.PeriodicTask.get_extensions(enabled):
             LOG.debug("Registering task %s", task)
 
@@ -90,6 +101,22 @@ class Service(service.RPCService, coordination.CoordinationMixin,
         self.partition_range = my_partitions
 
     # Begin RPC Implementation
+
+    def flatten_alias_record(self, context, domain_id, recordset):
+        return alias.flatten(
+            context,
+            self.central_api,
+            domain_id,
+            recordset
+        )
+
+    def delete_alias_record(self, context, domain_id, recordset):
+        return alias.delete(
+            context,
+            self.central_api,
+            domain_id,
+            recordset
+        )
 
     # Zone Export
     def start_zone_export(self, context, zone, export):

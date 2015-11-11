@@ -79,8 +79,9 @@ class CentralServiceTest(CentralTestCase):
         list.append(objects.Tld(name='biz'))
         list.append(objects.Tld(name='z'))
 
-        with mock.patch.object(self.central_service.storage, 'find_tlds',
-                return_value=list):
+        with mock.patch.object(self.central_service.storage,
+                               'find_tlds',
+                               return_value=list):
             self.central_service.start()
 
         context = self.get_context()
