@@ -211,14 +211,16 @@ mdns_api = mock.PropertyMock(
     ])
 )
 
+pool_manager_api_mock = mock.MagicMock(spec_set=[
+    'create_zone',
+    'update_zone',
+    'delete_zone'
+])
+
 fx_pool_manager = fixtures.MockPatch(
-    'designate.central.service.pool_manager_rpcapi.Pool'
-    'ManagerAPI.get_instance',
-    mock.MagicMock(spec_set=[
-        'create_zone',
-        'update_zone',
-        'delete_zone'
-    ])
+    'designate.central.service.pool_manager_rpcapi.'
+    'PoolManagerAPI.get_instance',
+    pool_manager_api_mock
 )
 
 fx_disable_notification = fixtures.MockPatch('designate.central.notification')
@@ -277,10 +279,11 @@ class CentralBasic(base.BaseTestCase):
             'elevated',
             'sudo',
             'abandon',
-            'all_tenants',
+            'all_tenants'
         ])
 
         self.service = Service()
+        self.service._pool_manager_api = pool_manager_api_mock
         self.service.check_for_tlds = True
         self.service.notifier = mock.Mock()
 
@@ -855,6 +858,7 @@ class CentralZoneTestCase(CentralBasic):
         )
 
         # self.service.create_zone = unwrap(self.service.create_zone)
+        self.service._pool_manager_api = Mock()
 
         out = self.service.create_zone(
             self.context,
@@ -868,6 +872,7 @@ class CentralZoneTestCase(CentralBasic):
             )
         )
         self.assertEqual('example.com.', out.name)
+        self.assertTrue(self.service._pool_manager_api.create_zone.called)
 
     def test_get_zone(self):
         self.service.storage.get_zone.return_value = RoObject(
@@ -928,6 +933,8 @@ class CentralZoneTestCase(CentralBasic):
         self.assertEqual('delete_zone', pcheck)
 
     def test_delete_zone_abandon(self):
+        self.service._pool_manager_api = mock.Mock()
+
         self.service.storage.get_zone.return_value = RoObject(
             name='foo',
             tenant_id='2',
@@ -1353,6 +1360,7 @@ class CentralZoneTestCase(CentralBasic):
             zone_id=4,
             id='i',
             managed=False,
+            type='A',
         )
         self.context = Mock()
         self.context.edit_managed_records = False

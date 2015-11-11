@@ -33,14 +33,15 @@ class ZoneManagerAPI(object):
     API version history:
 
         1.0 - Initial version
+        1.1 - Add ALIAS handlers
     """
-    RPC_API_VERSION = '1.0'
+    RPC_API_VERSION = '1.1'
 
-    def __init__(self, topic=None):
+    def __init__(self, topic=None, client=None):
         topic = topic if topic else cfg.CONF.zone_manager_topic
 
         target = messaging.Target(topic=topic, version=self.RPC_API_VERSION)
-        self.client = rpc.get_client(target, version_cap='1.0')
+        self.client = client or rpc.get_client(target, version_cap='1.1')
 
     @classmethod
     def get_instance(cls):
@@ -63,6 +64,23 @@ class ZoneManagerAPI(object):
 
         return self.client.cast(context, 'start_zone_export', zone=zone,
                                 export=export)
+
+    # ALIAS Record Support
+    def flatten_alias_record(self, context, zone_id, recordset):
+        LOG.info(_LI("flatten_alias_record: "
+                     "Calling zone_manager's flatten_alias_record."))
+
+        return self.client.cast(context, 'flatten_alias_record',
+                                zone_id=zone_id,
+                                recordset=recordset)
+
+    def delete_alias_record(self, context, zone_id, recordset):
+        LOG.info(_LI("delete_alias_record: "
+                     "Calling zone_manager's delete_alias_record."))
+
+        return self.client.cast(context, 'delete_alias_record',
+                                zone_id=zone_id,
+                                recordset=recordset)
 
     def render_zone(self, context, zone_id):
         LOG.info(_LI("render_zone: "

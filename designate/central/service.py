@@ -51,8 +51,8 @@ from designate import scheduler
 from designate import utils
 from designate import storage
 from designate.mdns import rpcapi as mdns_rpcapi
-from designate.pool_manager import rpcapi as pool_manager_rpcapi
-from designate.zone_manager import rpcapi as zone_manager_rpcapi
+from designate.pool_manager import rpcapi as pool_mgr_rpcapi
+from designate.zone_manager import rpcapi as zone_mgr_rpcapi
 
 
 LOG = logging.getLogger(__name__)
@@ -269,7 +269,12 @@ class Service(service.RPCService, service.Service):
     def __init__(self, threads=None):
         super(Service, self).__init__(threads=threads)
 
-        self.network_api = network_api.get_network_api(cfg.CONF.network_api)
+    @property
+    def network_api(self):
+        if not hasattr(self, '_network_api'):
+            self._network_api = network_api.get_network_api(
+                cfg.CONF.network_api)
+        return self._network_api
 
     @property
     def scheduler(self):
@@ -323,11 +328,17 @@ class Service(service.RPCService, service.Service):
 
     @property
     def pool_manager_api(self):
-        return pool_manager_rpcapi.PoolManagerAPI.get_instance()
+        if not hasattr(self, '_pool_manager_api'):
+            api = pool_mgr_rpcapi.PoolManagerAPI.get_instance()
+            self._pool_manager_api = api
+        return self._pool_manager_api
 
     @property
     def zone_manager_api(self):
-        return zone_manager_rpcapi.ZoneManagerAPI.get_instance()
+        if not hasattr(self, '_zone_manager_api'):
+            api = zone_mgr_rpcapi.ZoneManagerAPI.get_instance()
+            self._zone_manager_api = api
+        return self._zone_manager_api
 
     def _is_valid_zone_name(self, context, zone_name):
         # Validate zone name length
@@ -925,7 +936,7 @@ class Service(service.RPCService, service.Service):
             context, zone.name, zone.pool_id)
         if parent_zone:
             if parent_zone.tenant_id == zone.tenant_id:
-                # Record the Parent Zone ID
+                 # Record the Parent Zone ID
                 zone.parent_zone_id = parent_zone.id
             else:
                 raise exceptions.IllegalChildZone('Unable to create'
@@ -1284,6 +1295,9 @@ class Service(service.RPCService, service.Service):
     @synchronized_zone()
     def create_recordset(self, context, zone_id, recordset,
                          increment_serial=True):
+        LOG.info(_LI('Creating record: %(recordset)s for zone: %(zone_id)s'),
+                 {'recordset': recordset, 'zone_id': zone_id})
+
         zone = self.storage.get_zone(context, zone_id)
 
         # Don't allow updates to zones that are being deleted
@@ -1299,6 +1313,13 @@ class Service(service.RPCService, service.Service):
         }
 
         policy.check('create_recordset', context, target)
+
+        if recordset.type == 'ALIAS':
+            recordset.visible = 'api'
+            LOG.info(_LI('Flattening ALIAS: %s'), recordset)
+            self.zone_manager_api.flatten_alias_record(
+                context, zone_id, recordset
+            )
 
         recordset, zone = self._create_recordset_in_storage(
             context, zone, recordset, increment_serial=increment_serial)
@@ -1516,6 +1537,14 @@ class Service(service.RPCService, service.Service):
 
         if recordset.managed and not context.edit_managed_records:
             raise exceptions.BadRequest('Managed records may not be deleted')
+
+        # Delete our A record before deleting the actual ALIAS
+        if recordset.type == 'ALIAS':
+            recordset.visible = 'api'
+            LOG.info(_LI('Deleting ALIAS A record: %s'), recordset)
+            self.zone_manager_api.delete_alias_record(
+                context, zone_id, recordset
+            )
 
         recordset, zone = self._delete_recordset_in_storage(
             context, zone, recordset, increment_serial=increment_serial)
