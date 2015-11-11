@@ -256,8 +256,12 @@ class RequestHandler(xfr.XFRMixin):
         criterion = {'zone_id': zone.id, 'type': 'SOA'}
         soa_records = self.storage.find_recordsets_axfr(context, criterion)
 
-        # Get all the records other than SOA
-        criterion = {'zone_id': zone.id, 'type': '!SOA'}
+        # Get all the records other than SOA that are visible in mdns
+        criterion = {
+            'zone_id': zone.id,
+            'type': '!SOA',
+            'visible': ['all', 'mdns'],
+        }
         records = self.storage.find_recordsets_axfr(context, criterion)
 
         # Place the SOA RRSet at the front and end of the RRSet list

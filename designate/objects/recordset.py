@@ -108,6 +108,8 @@ class RecordSet(base.DictObjectMixin, base.PersistentObjectMixin,
             'schema': {
                 'type': 'string',
                 'description': 'RecordSet type (TODO: Make types extensible)',
+                'enum': ['A', 'AAAA', 'CNAME', 'MX', 'SRV', 'TXT', 'SPF', 'NS',
+                         'PTR', 'SSHFP', 'SOA', 'ALIAS']
             },
             'required': True,
             'immutable': True
@@ -124,6 +126,13 @@ class RecordSet(base.DictObjectMixin, base.PersistentObjectMixin,
             'schema': {
                 'type': ['string', 'null'],
                 'maxLength': 160
+            },
+        },
+        'visible': {
+            'schema': {
+                'type': 'string',
+                'description': 'The visibility in mdns and the API',
+                'enum': ['all', 'api', 'mdns'],
             },
         },
         'records': {
