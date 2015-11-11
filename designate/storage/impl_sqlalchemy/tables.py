@@ -28,7 +28,7 @@ CONF = cfg.CONF
 
 RESOURCE_STATUSES = ['ACTIVE', 'PENDING', 'DELETED', 'ERROR']
 RECORD_TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'SRV', 'TXT', 'SPF', 'NS', 'PTR',
-                'SSHFP']
+                'SSHFP', 'ALIAS']
 TASK_STATUSES = ['ACTIVE', 'PENDING', 'DELETED', 'ERROR', 'COMPLETE']
 TSIG_ALGORITHMS = ['hmac-md5', 'hmac-sha1', 'hmac-sha224', 'hmac-sha256',
                    'hmac-sha384', 'hmac-sha512']
@@ -40,6 +40,8 @@ ZONE_ATTRIBUTE_KEYS = ('master',)
 
 ZONE_TYPES = ('PRIMARY', 'SECONDARY',)
 ZONE_TASK_TYPES = ['IMPORT', 'EXPORT']
+
+VISIBLE_TYPES = ['all', 'mdns', 'api']
 
 
 metadata = MetaData()
@@ -157,6 +159,8 @@ recordsets = Table('recordsets', metadata,
     Column('ttl', Integer, default=None, nullable=True),
     Column('description', Unicode(160), nullable=True),
     Column('reverse_name', String(255), nullable=False, default=''),
+    Column('visible', Enum(name='', *VISIBLE_TYPES),
+           nullable=False, default='all'),
 
     UniqueConstraint('zone_id', 'name', 'type', name='unique_recordset'),
     ForeignKeyConstraint(['zone_id'], ['zones.id'], ondelete='CASCADE'),

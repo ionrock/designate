@@ -66,6 +66,9 @@ class RecordSetsController(rest.RestController):
 
         criterion['zone_id'] = zone_id
 
+        # Ensure we don't show A records created via ALIAS records
+        criterion['visible'] = 'api'
+
         # Data must be filtered separately, through the Records table
         data = criterion.pop('data', None)
         status = criterion.pop('status', None)
