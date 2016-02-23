@@ -26,15 +26,14 @@ import random
 import time
 
 import six
+import wrapt
 from eventlet import tpool
 from dns import zone as dnszone
 from dns import exception as dnsexception
 from oslo_config import cfg
 import oslo_messaging as messaging
 from oslo_log import log as logging
-from oslo_utils import excutils
 from oslo_concurrency import lockutils
-from oslo_db import exception as db_exception
 
 from designate.i18n import _LI
 from designate.i18n import _LC
@@ -49,6 +48,7 @@ from designate import quota
 from designate import service
 from designate import utils
 from designate import storage
+from designate.storage.transaction import transaction
 from designate.mdns import rpcapi as mdns_rpcapi
 from designate.pool_manager import rpcapi as pool_manager_rpcapi
 from designate.zone_manager import rpcapi as zone_manager_rpcapi
@@ -57,83 +57,6 @@ from designate.zone_manager import rpcapi as zone_manager_rpcapi
 LOG = logging.getLogger(__name__)
 ZONE_LOCKS = threading.local()
 NOTIFICATION_BUFFER = threading.local()
-RETRY_STATE = threading.local()
-
-
-def _retry_on_deadlock(exc):
-    """Filter to trigger retry a when a Deadlock is received."""
-    # TODO(kiall): This is a total leak of the SQLA Driver, we'll need a better
-    #              way to handle this.
-    if isinstance(exc, db_exception.DBDeadlock):
-        LOG.warning(_LW("Deadlock detected. Retrying..."))
-        return True
-    return False
-
-
-def retry(cb=None, retries=50, delay=150):
-    """A retry decorator that ignores attempts at creating nested retries"""
-    def outer(f):
-        @functools.wraps(f)
-        def retry_wrapper(self, *args, **kwargs):
-            if not hasattr(RETRY_STATE, 'held'):
-                # Create the state vars if necessary
-                RETRY_STATE.held = False
-                RETRY_STATE.retries = 0
-
-            if not RETRY_STATE.held:
-                # We're the outermost retry decorator
-                RETRY_STATE.held = True
-
-                try:
-                    while True:
-                        try:
-                            result = f(self, *copy.deepcopy(args),
-                                       **copy.deepcopy(kwargs))
-                            break
-                        except Exception as exc:
-                            RETRY_STATE.retries += 1
-                            if RETRY_STATE.retries >= retries:
-                                # Exceeded retry attempts, raise.
-                                raise
-                            elif cb is not None and cb(exc) is False:
-                                # We're not setup to retry on this exception.
-                                raise
-                            else:
-                                # Retry, with a delay.
-                                time.sleep(delay / float(1000))
-
-                finally:
-                    RETRY_STATE.held = False
-                    RETRY_STATE.retries = 0
-
-            else:
-                # We're an inner retry decorator, just pass on through.
-                result = f(self, *copy.deepcopy(args), **copy.deepcopy(kwargs))
-
-            return result
-        retry_wrapper.__wrapped_function = f
-        retry_wrapper.__wrapper_name = 'retry'
-        return retry_wrapper
-    return outer
-
-
-# TODO(kiall): Get this a better home :)
-def transaction(f):
-    @retry(cb=_retry_on_deadlock)
-    @functools.wraps(f)
-    def transaction_wrapper(self, *args, **kwargs):
-        self.storage.begin()
-        try:
-            result = f(self, *args, **kwargs)
-            self.storage.commit()
-            return result
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                self.storage.rollback()
-
-    transaction_wrapper.__wrapped_function = f
-    transaction_wrapper.__wrapper_name = 'transaction'
-    return transaction_wrapper
 
 
 def synchronized_zone(zone_arg=1, new_zone=False):
@@ -215,49 +138,47 @@ def synchronized_zone(zone_arg=1, new_zone=False):
 
 
 def notification(notification_type):
-    def outer(f):
-        @functools.wraps(f)
-        def notification_wrapper(self, *args, **kwargs):
-            if not hasattr(NOTIFICATION_BUFFER, 'queue'):
-                # Create the notifications queue if necessary
-                NOTIFICATION_BUFFER.stack = 0
-                NOTIFICATION_BUFFER.queue = collections.deque()
+    @wrapt.decorator
+    def notification_wrapper(wrapped, instance, args, kwargs):
+        if not hasattr(NOTIFICATION_BUFFER, 'queue'):
+            # Create the notifications queue if necessary
+            NOTIFICATION_BUFFER.stack = 0
+            NOTIFICATION_BUFFER.queue = collections.deque()
 
-            NOTIFICATION_BUFFER.stack += 1
+        NOTIFICATION_BUFFER.stack += 1
 
-            try:
-                # Find the context argument
-                context = dcontext.DesignateContext.\
-                    get_context_from_function_and_args(f, args, kwargs)
+        try:
+            # Find the context argument
+            context = dcontext.DesignateContext.\
+                get_context_from_function_and_args(wrapped, args, kwargs)
 
-                # Call the wrapped function
-                result = f(self, *args, **kwargs)
+            # Call the wrapped function
+            result = wrapped(*args, **kwargs)
 
-                # Enqueue the notification
-                LOG.debug('Queueing notification for %(type)s ',
-                          {'type': notification_type})
-                NOTIFICATION_BUFFER.queue.appendleft(
-                    (context, notification_type, result,))
+            # Enqueue the notification
+            LOG.debug('Queueing notification for %(type)s ',
+                      {'type': notification_type})
+            NOTIFICATION_BUFFER.queue.appendleft(
+                (context, notification_type, result,))
 
-                return result
+            return result
 
-            finally:
-                NOTIFICATION_BUFFER.stack -= 1
+        finally:
+            NOTIFICATION_BUFFER.stack -= 1
 
-                if NOTIFICATION_BUFFER.stack == 0:
-                    LOG.debug('Emitting %(count)d notifications',
-                              {'count': len(NOTIFICATION_BUFFER.queue)})
-                    # Send the queued notifications, in order.
-                    for value in NOTIFICATION_BUFFER.queue:
-                        LOG.debug('Emitting %(type)s notification',
-                                  {'type': value[1]})
-                        self.notifier.info(value[0], value[1], value[2])
+            if NOTIFICATION_BUFFER.stack == 0:
+                LOG.debug('Emitting %(count)d notifications',
+                          {'count': len(NOTIFICATION_BUFFER.queue)})
+                # Send the queued notifications, in order.
+                for value in NOTIFICATION_BUFFER.queue:
+                    LOG.debug('Emitting %(type)s notification',
+                              {'type': value[1]})
+                    instance.notifier.info(value[0], value[1], value[2])
 
-                    # Reset the queue
-                    NOTIFICATION_BUFFER.queue.clear()
+                # Reset the queue
+                NOTIFICATION_BUFFER.queue.clear()
 
-        return notification_wrapper
-    return outer
+    return notification_wrapper
 
 
 class Service(service.RPCService, service.Service):
