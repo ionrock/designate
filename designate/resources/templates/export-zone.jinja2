@@ -2,6 +2,5 @@ $ORIGIN {{ zone.name }}
 $TTL {{ zone.ttl }}
 
 {% for recordset in recordsets -%}
-{{recordset[0]}} {{recordset[1] or ''}} IN {{recordset[2]}} {{recordset[3]}}
+{% if recordset[2] == 'ALIAS' %}# {% endif %}{{recordset[0]}} {{recordset[1] or ''}} IN {{recordset[2]}} {{recordset[3]}}
 {% endfor %}
-
